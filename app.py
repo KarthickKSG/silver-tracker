@@ -5,212 +5,237 @@ import plotly.graph_objects as go
 from datetime import datetime
 import io
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Nebula Silver Analytics", page_icon="🌌", layout="wide")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="Nebula Quantum Analytics", page_icon="📈", layout="wide")
 
-# --- GALAXY THEME CSS ---
+# --- ADVANCED GALAXY CSS ---
 st.markdown("""
     <style>
-    /* Global Galaxy Background */
+    /* Main Background */
     .stApp {
-        background: radial-gradient(circle at top right, #0b0e1e, #16213e, #0f3460);
-        color: #e0e0e0;
-    }
-    
-    /* Glassmorphism Containers */
-    div[data-testid="stVerticalBlock"] > div:has(div.stMetric) {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(15px);
-        border-radius: 20px;
-        padding: 25px;
-        border: 1px solid rgba(0, 212, 255, 0.2);
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        background: radial-gradient(circle at 50% 50%, #0f0c29, #302b63, #24243e);
+        color: #ffffff;
     }
 
-    /* Neon Titles */
+    /* Glassmorphism Cards */
+    div[data-testid="stVerticalBlock"] > div:has(div.stMetric) {
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(12px);
+        border-radius: 20px;
+        padding: 20px;
+        border: 1px solid rgba(0, 212, 255, 0.2);
+        box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+    }
+
+    /* Neon Accents */
     h1, h2, h3 {
         color: #00d4ff !important;
-        text-shadow: 0 0 15px #00d4ff;
-        font-family: 'Orbitron', sans-serif;
+        text-shadow: 0 0 15px rgba(0, 212, 255, 0.6);
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
 
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: rgba(10, 10, 25, 0.9);
-    }
-
-    /* Custom Buttons */
+    /* Buttons */
     .stButton>button {
-        background: linear-gradient(45deg, #7b2ff7, #00d4ff);
-        color: white;
-        border-radius: 30px;
-        border: none;
-        padding: 10px 24px;
-        font-weight: bold;
-        transition: 0.3s ease;
+        background: linear-gradient(45deg, #00d4ff, #7b2ff7);
+        color: white; border-radius: 12px; border: none;
+        font-weight: bold; width: 100%; transition: 0.3s;
     }
     .stButton>button:hover {
-        box-shadow: 0 0 20px #00d4ff;
-        transform: scale(1.05);
+        box-shadow: 0 0 25px #00d4ff;
+        transform: translateY(-2px);
+    }
+
+    /* Sidebar Customization */
+    section[data-testid="stSidebar"] {
+        background-color: rgba(10, 10, 30, 0.95);
+        border-right: 1px solid rgba(0, 212, 255, 0.2);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DATA PROCESSING ENGINE ---
-def clean_data(df):
-    # Remove Currency symbol and convert to float
-    if 'Price (Per Gram)' in df.columns:
-        if df['Price (Per Gram)'].dtype == 'object':
-            df['Price (Per Gram)'] = df['Price (Per Gram)'].str.replace('₹', '').str.replace(',', '').astype(float)
-    
-    # Convert Date
-    if 'Date' in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
-    return df
+# --- CORE DATA ENGINE ---
+def process_csv(uploaded_file):
+    try:
+        df = pd.read_csv(uploaded_file)
+        # Clean columns
+        df.columns = [str(c).strip() for c in df.columns]
+        
+        # Clean Price column (handles ₹, commas)
+        price_col = [c for c in df.columns if 'Price' in c or 'price' in c][0]
+        if df[price_col].dtype == 'object':
+            df[price_col] = df[price_col].astype(str).str.replace('₹', '').str.replace(',', '').str.strip()
+            df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+        
+        # Clean Date column
+        date_col = [c for c in df.columns if 'Date' in c or 'date' in c][0]
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=[date_col, price_col]).sort_values(date_col)
+        
+        return df, date_col, price_col
+    except Exception as e:
+        st.error(f"Mapping Error: {e}")
+        return None, None, None
 
-# Initial Data Loading
-if 'data' not in st.session_state:
-    raw_csv = """Date,Day,Price (Per Gram),Trend,Advice
-Jan 16 2025,Thu,93.20,🔄 Steady,Base building.
-Jan 17 2025,Fri,93.50,🔄 Steady,Hold.
-Jan 20 2025,Mon,92.80,📉 Dip,Buy small qty.
-Feb 03 2025,Mon,102.00,🚀 Budget,Duty cut impact.
-Mar 07 2025,Fri,110.00,🚀 Milestone,Touched 110.
-Apr 10 2025,Thu,120.00,🏆 Milestone,Crossed 120.
-May 30 2025,Fri,141.20,🔥 Close,Monthly high.
-Jun 19 2025,Thu,150.50,🏆 Milestone,Broken 150 barrier.
-Jul 24 2025,Thu,170.00,🏆 Milestone,Crossed 170.
-Sep 04 2025,Thu,200.50,🏆 HISTORIC,Crossed 2 Lakh/kg.
-Oct 24 2025,Fri,240.00,🏆 Milestone,Crossed 240.
-Nov 13 2025,Thu,251.00,🏆 Milestone,Quarter Million.
-Jan 13 2026,Tue,307.00,🚀 ATH,All Time High."""
-    
-    # Using the provided data as seed
-    df_initial = pd.read_csv(io.StringIO(raw_csv))
-    st.session_state.data = clean_data(df_initial)
+# --- INITIAL DATA STATE ---
+if 'data_1' not in st.session_state:
+    st.session_state.data_1 = None
+if 'data_2' not in st.session_state:
+    st.session_state.data_2 = None
 
 # --- SIDEBAR NAVIGATION ---
 with st.sidebar:
-    st.title("📈 Nebula Control")
-    menu = st.radio("Navigation", ["Dashboard", "Price Comparison", "Advanced Lab", "Data Management"])
+    st.image("https://cdn-icons-png.flaticon.com/512/2022/2022299.png", width=80)
+    st.title("Nebula Control")
+    mode = st.radio("System Mode", ["Overview Analytics", "Dual CSV Compare", "Data Management"])
+    
     st.markdown("---")
-    st.info("System: Silver Tracker\nVersion: 4.0 Quantum")
+    st.subheader("📁 Upload Data")
+    file1 = st.file_uploader("Primary CSV (Required)", type="csv")
+    if file1:
+        st.session_state.data_1, d1, p1 = process_csv(file1)
+        
+    file2 = st.file_uploader("Secondary CSV (Optional Comparison)", type="csv")
+    if file2:
+        st.session_state.data_2, d2, p2 = process_csv(file2)
 
-# --- 1. DASHBOARD ---
-if menu == "Dashboard":
-    st.title("🚀 Silver Market Galaxy")
-    df = st.session_state.data
-    
-    # KPIs
-    c1, c2, c3, c4 = st.columns(4)
-    latest_price = df['Price (Per Gram)'].iloc[-1]
-    start_price = df['Price (Per Gram)'].iloc[0]
-    total_growth = ((latest_price - start_price) / start_price) * 100
-    
-    c1.metric("Current Price", f"₹{latest_price:,.2f}")
-    c2.metric("Total Growth", f"{total_growth:.1f}%", delta=f"{latest_price-start_price:.2f}")
-    c3.metric("Peak Price", f"₹{df['Price (Per Gram)'].max():,.2f}")
-    c4.metric("Data Points", len(df))
+# --- MAIN LOGIC ---
+if st.session_state.data_1 is not None:
+    df1 = st.session_state.data_1
+    d_col, p_col = "Date", "Price (Per Gram)" # Standardized names from process_csv
 
-    # Visuals
-    col_a, col_b = st.columns([2, 1])
-    
-    with col_a:
-        fig_line = px.area(df, x='Date', y='Price (Per Gram)', 
-                          title="Silver Price Trajectory (Jan 2025 - Jan 2026)",
-                          line_shape="spline",
-                          color_discrete_sequence=['#00d4ff'])
-        fig_line.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_line, use_container_width=True)
-
-    with col_b:
-        fig_pie = px.pie(df, names='Trend', title="Trend Distribution",
-                        hole=0.6, color_discrete_sequence=px.colors.sequential.Electric)
-        fig_pie.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-# --- 2. PRICE COMPARISON ---
-elif menu == "Price Comparison":
-    st.title("⚖️ Price Dimensional Comparison")
-    df = st.session_state.data
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        date_a = st.selectbox("Select Base Date", df['Date'].dt.date.unique(), index=0)
-    with col2:
-        date_b = st.selectbox("Select Comparison Date", df['Date'].dt.date.unique(), index=len(df)-1)
-    
-    row_a = df[df['Date'].dt.date == date_a].iloc[0]
-    row_b = df[df['Date'].dt.date == date_b].iloc[0]
-    
-    comp_col1, comp_col2 = st.columns(2)
-    diff = row_b['Price (Per Gram)'] - row_a['Price (Per Gram)']
-    perc = (diff / row_a['Price (Per Gram)']) * 100
-    
-    st.write(f"### Result: {'Increase' if diff > 0 else 'Decrease'} of ₹{abs(diff):.2f} ({perc:.2f}%)")
-    
-    fig_comp = go.Figure(data=[
-        go.Bar(name='Price', x=[str(date_a), str(date_b)], y=[row_a['Price (Per Gram)'], row_b['Price (Per Gram)']],
-               marker_color=['#7b2ff7', '#00d4ff'])
-    ])
-    fig_comp.update_layout(template="plotly_dark", title="Price Comparison Bar")
-    st.plotly_chart(fig_comp, use_container_width=True)
-
-# --- 3. ADVANCED LAB ---
-elif menu == "Advanced Lab":
-    st.title("🧪 Advanced Analytics Lab")
-    df = st.session_state.data
-    
-    st.subheader("Statistical Volatility & Moving Average")
-    window = st.slider("Select Moving Average Window (Days)", 2, 20, 5)
-    df['MA'] = df['Price (Per Gram)'].rolling(window=window).mean()
-    
-    fig_adv = go.Figure()
-    fig_adv.add_trace(go.Scatter(x=df['Date'], y=df['Price (Per Gram)'], name='Actual Price', line=dict(color='#00d4ff')))
-    fig_adv.add_trace(go.Scatter(x=df['Date'], y=df['MA'], name=f'{window}-Day MA', line=dict(color='#ff00ff', dash='dash')))
-    
-    fig_adv.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig_adv, use_container_width=True)
-    
-    st.write("### Analysis Advice")
-    st.info(f"Latest Market Intelligence: {df['Advice'].iloc[-1]}")
-
-# --- 4. DATA MANAGEMENT ---
-elif menu == "Data Management":
-    st.title("📁 File Management System")
-    
-    # Add New Data
-    with st.expander("➕ Inject New Data Entry"):
-        with st.form("new_entry"):
+    # --- 1. OVERVIEW ANALYTICS ---
+    if mode == "Overview Analytics":
+        st.title("🚀 Galaxy Data Intelligence")
+        
+        # Filtering System
+        with st.expander("🔍 Advanced Filtering Laboratory"):
             c1, c2, c3 = st.columns(3)
-            n_date = c1.date_input("Date")
-            n_price = c2.number_input("Price (₹)", min_value=0.0, format="%.2f")
-            n_day = n_date.strftime("%a")
+            min_date = df1[d_col].min().date()
+            max_date = df1[d_col].max().date()
+            date_range = c1.date_input("Time Window", [min_date, max_date])
             
-            c4, c5 = st.columns(2)
-            n_trend = c4.selectbox("Trend", ["📈 Rising", "📉 Dip", "🔄 Steady", "🚀 Surge", "🔥 Hot"])
-            n_advice = c5.text_input("Advice", "Market observation.")
+            trend_filter = c2.multiselect("Filter by Trend", df1['Trend'].unique() if 'Trend' in df1.columns else [])
+            price_limit = c3.slider("Price Threshold (Min)", float(df1[p_col].min()), float(df1[p_col].max()))
+
+            # Apply Filters
+            mask = (df1[d_col].dt.date >= date_range[0]) & (df1[d_col].dt.date <= date_range[1])
+            if trend_filter:
+                mask = mask & (df1['Trend'].isin(trend_filter))
+            mask = mask & (df1[p_col] >= price_limit)
+            filtered_df = df1[mask]
+
+        # KPIs
+        k1, k2, k3, k4 = st.columns(4)
+        current = filtered_df[p_col].iloc[-1]
+        start = filtered_df[p_col].iloc[0]
+        change = ((current - start) / start) * 100
+        
+        k1.metric("Current Price", f"₹{current:,.2f}", f"{change:.1f}%")
+        k2.metric("Market Peak", f"₹{filtered_df[p_col].max():,.2f}")
+        k3.metric("Volatility (Std)", f"{filtered_df[p_col].std():.2f}")
+        k4.metric("Data Points", len(filtered_df))
+
+        # Charts Row 1
+        col_main, col_dist = st.columns([2, 1])
+        
+        with col_main:
+            # Multi-Layer Price Chart
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=filtered_df[d_col], y=filtered_df[p_col], 
+                                     name="Spot Price", fill='tozeroy',
+                                     line=dict(color='#00d4ff', width=3)))
+            # Moving Average
+            filtered_df['MA7'] = filtered_df[p_col].rolling(7).mean()
+            fig.add_trace(go.Scatter(x=filtered_df[d_col], y=filtered_df['MA7'], 
+                                     name="7-Day Avg", line=dict(color='#ff00ff', dash='dot')))
             
-            if st.form_submit_button("Launch into System"):
-                new_row = pd.DataFrame([{
-                    "Date": pd.to_datetime(n_date), "Day": n_day, 
-                    "Price (Per Gram)": n_price, "Trend": n_trend, "Advice": n_advice
-                }])
-                st.session_state.data = pd.concat([st.session_state.data, new_row], ignore_index=True)
-                st.success("Data Record Synced!")
+            fig.update_layout(template="plotly_dark", title="Quantum Price Trajectory",
+                              paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                              xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'))
+            st.plotly_chart(fig, use_container_width=True)
 
-    # Bulk Upload
-    with st.expander("📂 Bulk Upload CSV"):
-        uploaded_file = st.file_uploader("Upload Galaxy Data CSV", type="csv")
-        if uploaded_file:
-            up_df = pd.read_csv(uploaded_file)
-            st.session_state.data = clean_data(up_df)
-            st.success("Mainframe Updated via File!")
+        with col_dist:
+            # Volatility Analysis
+            fig_box = px.violin(filtered_df, y=p_col, box=True, points="all",
+                               title="Price Density Distribution", color_discrete_sequence=['#7b2ff7'])
+            fig_box.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_box, use_container_width=True)
 
-    # Current Ledger
-    st.write("### Master Ledger")
-    st.dataframe(st.session_state.data.sort_values('Date', ascending=False), use_container_width=True)
-    
-    # Download
-    csv_download = st.session_state.data.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Download Database", data=csv_download, file_name="silver_data_export.csv", mime="text/csv")
+        # Charts Row 2
+        st.write("### 🧪 Trend & Behavioral Labs")
+        c_a, c_b = st.columns(2)
+        
+        with c_a:
+            if 'Trend' in filtered_df.columns:
+                fig_bar = px.bar(filtered_df.groupby('Trend').size().reset_index(name='count'), 
+                                x='Trend', y='count', color='Trend', title="Market Sentiment Frequency")
+                fig_bar.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_bar, use_container_width=True)
+        
+        with c_b:
+            filtered_df['Returns'] = filtered_df[p_col].pct_change() * 100
+            fig_ret = px.histogram(filtered_df, x='Returns', title="Daily Returns % (Volatility)",
+                                  color_discrete_sequence=['#00d4ff'], nbins=30)
+            fig_ret.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_ret, use_container_width=True)
+
+    # --- 2. DUAL CSV COMPARE ---
+    elif mode == "Dual CSV Compare":
+        st.title("⚖️ Dimensional Comparison Engine")
+        
+        if st.session_state.data_2 is not None:
+            df2 = st.session_state.data_2
+            
+            col_left, col_right = st.columns(2)
+            col_left.metric("Dataset 1 Max", f"₹{df1[p_col].max():,.2f}")
+            col_right.metric("Dataset 2 Max", f"₹{df2[p_col].max():,.2f}")
+            
+            fig_comp = go.Figure()
+            fig_comp.add_trace(go.Scatter(x=df1[d_col], y=df1[p_col], name="Primary Dataset", line=dict(color='#00d4ff')))
+            fig_comp.add_trace(go.Scatter(x=df2[d_col], y=df2[p_col], name="Secondary Dataset", line=dict(color='#ff00ff')))
+            
+            fig_comp.update_layout(template="plotly_dark", title="Overlay Performance Analysis",
+                                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_comp, use_container_width=True)
+            
+            # Statistics Table
+            st.write("### Comparative Statistics")
+            stats = pd.DataFrame({
+                "Metric": ["Average", "Min", "Max", "Growth"],
+                "Primary": [df1[p_col].mean(), df1[p_col].min(), df1[p_col].max(), df1[p_col].iloc[-1] - df1[p_col].iloc[0]],
+                "Secondary": [df2[p_col].mean(), df2[p_col].min(), df2[p_col].max(), df2[p_col].iloc[-1] - df2[p_col].iloc[0]]
+            })
+            st.table(stats)
+        else:
+            st.warning("Please upload a second CSV in the sidebar to use the Comparison Engine.")
+
+    # --- 3. DATA MANAGEMENT ---
+    elif mode == "Data Management":
+        st.title("📁 File Management & Ledger")
+        
+        tab1, tab2 = st.tabs(["Add Entry", "Raw Data Archive"])
+        
+        with tab1:
+            with st.form("manual_input"):
+                c1, c2, c3 = st.columns(3)
+                new_date = c1.date_input("Entry Date")
+                new_price = c2.number_input("Price Value", min_value=0.0)
+                new_trend = c3.selectbox("Trend", ["📈 Rising", "📉 Dip", "🔄 Steady", "🚀 Surge"])
+                
+                if st.form_submit_button("Sync to Cloud"):
+                    new_row = pd.DataFrame([{d_col: pd.to_datetime(new_date), p_col: new_price, 'Trend': new_trend}])
+                    st.session_state.data_1 = pd.concat([st.session_state.data_1, new_row], ignore_index=True).sort_values(d_col)
+                    st.success("Record Synced!")
+                    st.rerun()
+
+        with tab2:
+            st.dataframe(df1.sort_values(d_col, ascending=False), use_container_width=True)
+            csv = df1.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Export Master Ledger", data=csv, file_name="master_silver_data.csv", mime="text/csv")
+
+else:
+    # Landing Page
+    st.title("🌌 Welcome to Nebula Quantum")
+    st.info("Please upload a Silver Price CSV file in the sidebar to activate the galaxy mainframe.")
+    st.write("### Expected CSV Format:")
+    st.code("Date, Price (Per Gram), Trend, Advice\nJan 16 2025, 93.20, 🔄 Steady, Base building.")
