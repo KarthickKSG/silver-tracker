@@ -10,7 +10,7 @@ st.set_page_config(page_title="Nebula Data Analytics", page_icon="🌌", layout=
 st.markdown("""
     <style>
     .stApp {
-        background: radial-gradient(circle at top right, #0f0c29, #302b63, #24243e);
+        background: radial-gradient(circle at top right, #0a0a12, #16213e, #0f3460);
         color: #ffffff;
     }
     div[data-testid="stMetricValue"] {
@@ -20,147 +20,163 @@ st.markdown("""
     .stButton>button {
         background: linear-gradient(45deg, #00d4ff, #005f73);
         color: white; border-radius: 20px; border: none;
-        box-shadow: 0 0 15px rgba(0, 212, 255, 0.4);
     }
-    /* Glassmorphism containers */
+    /* Glassmorphism style cards */
     div[data-testid="stVerticalBlock"] > div:has(div.stMetric) {
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.03);
         backdrop-filter: blur(10px);
         border-radius: 15px;
-        padding: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        border: 1px solid rgba(0, 212, 255, 0.1);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DATA ENGINE ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1Qk8U4Gx4Zxxb-sTYeCSnMbCz31a2WJiLUMYIsjAcTDY/export?format=csv"
+# --- DATA ENGINE (TARGETING THE 'ORDERS' SHEET) ---
+# We use GID=0 which is usually the 'Orders' sheet in this specific dataset
+SHEET_ID = "1Qk8U4Gx4Zxxb-sTYeCSnMbCz31a2WJiLUMYIsjAcTDY"
+URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
 
 @st.cache_data(ttl=600)
-def load_initial_data():
+def load_and_clean_data():
     try:
-        # Load data
-        df = pd.read_csv(SHEET_URL)
+        df = pd.read_csv(URL)
         
-        # CLEANING: Remove leading/trailing spaces from column names
-        df.columns = df.columns.str.strip()
+        # 1. Clean Column Names (Remove spaces and make Title Case)
+        df.columns = [str(col).strip() for col in df.columns]
         
-        # DATE CONVERSION: Handle different date formats
+        # 2. Smart Column Detection (In case names are lowercase or slightly different)
+        column_map = {
+            'sales': 'Sales',
+            'profit': 'Profit',
+            'category': 'Category',
+            'region': 'Region',
+            'order date': 'Order Date',
+            'discount': 'Discount'
+        }
+        
+        # Rename columns to standard names for our app
+        for actual_col in df.columns:
+            if actual_col.lower() in column_map:
+                df.rename(columns={actual_col: column_map[actual_col.lower()]}, inplace=True)
+
+        # 3. Data Type Fixes
         if 'Order Date' in df.columns:
             df['Order Date'] = pd.to_datetime(df['Order Date'], errors='coerce')
         
-        # NUMERIC CONVERSION: Ensure Sales and Profit are numbers
-        for col in ['Sales', 'Profit', 'Discount', 'Quantity']:
+        numeric_cols = ['Sales', 'Profit', 'Discount']
+        for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 
         return df
     except Exception as e:
-        st.error(f"⚠️ Connection Error: {e}")
+        st.error(f"Galaxy Connection Failed: {e}")
         return pd.DataFrame()
 
-# Initialize Session State
+# Initialize session state for persistence
 if 'main_df' not in st.session_state:
-    st.session_state.main_df = load_initial_data()
+    st.session_state.main_df = load_and_clean_data()
 
 df = st.session_state.main_df
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("📈 Nebula Systems")
-    page = st.radio("Navigation", ["Live Dashboard", "Comparison Tool", "Data Management"])
-    st.markdown("---")
-    if st.button("🔄 Refresh Cloud Data"):
-        st.session_state.main_df = load_initial_data()
-        st.rerun()
+# --- VALIDATION ---
+required = ['Sales', 'Profit', 'Category']
+found = [c for c in required if c in df.columns]
 
-# --- VALIDATION CHECK ---
-required_columns = ['Sales', 'Profit', 'Category']
-missing_cols = [c for c in required_columns if c not in df.columns]
-
-if missing_cols:
-    st.error(f"❌ Critical Error: The columns {missing_cols} were not found in your sheet.")
-    st.write("Columns found in your sheet:", list(df.columns))
+if len(found) < len(required):
+    st.error("❌ Critical Error: Data mapping failed.")
+    st.write(f"I found {found}, but I need {required}.")
+    st.write("Here is what your sheet looks like to me right now:")
+    st.dataframe(df.head(5))
+    st.info("Check if the first sheet in your Google Sheets file is actually the data sheet.")
     st.stop()
 
-# --- PAGE 1: DASHBOARD ---
-if page == "Live Dashboard":
-    st.title("🚀 Cosmic Analytics Dashboard")
-    
-    # TOP ROW KPIs
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Sales", f"${df['Sales'].sum():,.0f}")
-    m2.metric("Net Profit", f"${df['Profit'].sum():,.0f}")
-    m3.metric("Total Orders", f"{len(df):,}")
-    m4.metric("Avg Discount", f"{df['Discount'].mean()*100:.1f}%")
+# --- SIDEBAR NAVIGATION ---
+with st.sidebar:
+    st.title("🌌 Nebula Admin")
+    page = st.radio("Navigation", ["Overview Dashboard", "Market Comparison", "Record Management"])
+    st.markdown("---")
+    if st.button("🔄 Sync with Google Cloud"):
+        st.session_state.main_df = load_and_clean_data()
+        st.success("Synced!")
+        st.rerun()
 
-    col1, col2 = st.columns([2, 1])
+# --- DASHBOARD PAGE ---
+if page == "Overview Dashboard":
+    st.title("🚀 Cosmic Sales Overview")
     
-    with col1:
+    # KPI ROLLS
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Revenue", f"${df['Sales'].sum():,.0f}")
+    k2.metric("Net Profit", f"${df['Profit'].sum():,.0f}")
+    k3.metric("Total Orders", f"{len(df):,}")
+    k4.metric("Margin", f"{(df['Profit'].sum()/df['Sales'].sum()*100):.1f}%")
+
+    # CHARTS
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_left:
         # Sales Trend
-        if 'Order Date' in df.columns:
-            df_trend = df.groupby(df['Order Date'].dt.date)['Sales'].sum().reset_index()
-            fig = px.area(df_trend, x='Order Date', y='Sales', title="Revenue Stream Over Time",
-                         color_discrete_sequence=['#00d4ff'])
-            fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Category breakdown
-        fig2 = px.pie(df, values='Sales', names='Category', hole=.5, title="Category Mix")
-        fig2.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig2, use_container_width=True)
+        trend_df = df.groupby(df['Order Date'].dt.date)['Sales'].sum().reset_index()
+        fig_trend = px.area(trend_df, x='Order Date', y='Sales', title="Revenue Trajectory",
+                           color_discrete_sequence=['#00d4ff'])
+        fig_trend.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_trend, use_container_width=True)
 
-# --- PAGE 2: COMPARISON TOOL ---
-elif page == "Comparison Tool":
-    st.title("⚖️ Performance Comparison")
-    
-    # Compare by Region or Category
-    compare_on = st.selectbox("Compare performance based on:", ["Region", "Segment", "Ship Mode"])
-    
-    if compare_on in df.columns:
-        options = df[compare_on].unique()
-        col1, col2 = st.columns(2)
-        with col1:
-            a = st.selectbox(f"Select {compare_on} A", options, index=0)
-        with col2:
-            b = st.selectbox(f"Select {compare_on} B", options, index=1 if len(options)>1 else 0)
-            
-        comp_df = df[df[compare_on].isin([a, b])]
-        fig = px.bar(comp_df, x='Category', y='Sales', color=compare_on, barmode='group',
-                    title=f"Comparison: {a} vs {b}")
-        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig, use_container_width=True)
+    with col_right:
+        # Category Pie
+        fig_pie = px.pie(df, values='Sales', names='Category', hole=0.5, title="Category Mix")
+        fig_pie.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-# --- PAGE 3: DATA MANAGEMENT ---
-elif page == "Data Management":
-    st.title("📁 Ledger & File Management")
+# --- COMPARISON PAGE ---
+elif page == "Market Comparison":
+    st.title("⚖️ Dimensional Analysis")
     
-    # 1. Add New Data Option
-    with st.expander("➕ Inject New Data Entry"):
-        with st.form("entry_form"):
-            c1, c2, c3 = st.columns(3)
-            new_id = c1.text_input("Order ID", "CA-2024-NEW")
-            new_sales = c2.number_input("Sales Value", min_value=0.0)
-            new_profit = c3.number_input("Profit Value")
+    compare_dim = st.selectbox("Select Dimension to Compare", ["Region", "Segment", "Category"])
+    
+    vals = df[compare_dim].unique()
+    c1, c2 = st.columns(2)
+    dim_a = c1.selectbox("Dimension A", vals, index=0)
+    dim_b = c2.selectbox("Dimension B", vals, index=1 if len(vals)>1 else 0)
+    
+    comp_df = df[df[compare_dim].isin([dim_a, dim_b])]
+    fig_comp = px.bar(comp_df, x='Category', y='Sales', color=compare_dim, barmode='group',
+                     title=f"Head-to-Head: {dim_a} vs {dim_b}")
+    fig_comp.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+    st.plotly_chart(fig_comp, use_container_width=True)
+
+# --- RECORD MANAGEMENT PAGE ---
+elif page == "Record Management":
+    st.title("📁 File & Record Management")
+    
+    # Tabbed Management
+    tab1, tab2 = st.tabs(["Manual Entry", "Database View"])
+    
+    with tab1:
+        with st.form("manual_entry"):
+            st.subheader("Inject New Order")
+            col1, col2, col3 = st.columns(3)
+            oid = col1.text_input("Order ID", "NEW-12345")
+            osales = col2.number_input("Sales", min_value=0.0)
+            oprofit = col3.number_input("Profit")
             
-            c4, c5 = st.columns(2)
-            new_cat = c4.selectbox("Category", df['Category'].unique() if 'Category' in df.columns else ["Default"])
-            new_reg = c5.selectbox("Region", df['Region'].unique() if 'Region' in df.columns else ["Default"])
+            col4, col5 = st.columns(2)
+            ocat = col4.selectbox("Category", df['Category'].unique())
+            oreg = col5.selectbox("Region", df['Region'].unique())
             
-            if st.form_submit_button("🚀 Upload to Dashboard"):
-                new_data = pd.DataFrame([{
-                    "Order ID": new_id, "Sales": new_sales, "Profit": new_profit,
-                    "Category": new_cat, "Region": new_reg, "Order Date": pd.Timestamp.now(),
-                    "Discount": 0, "Quantity": 1
+            if st.form_submit_button("Launch to Database"):
+                new_row = pd.DataFrame([{
+                    "Order ID": oid, "Sales": osales, "Profit": oprofit,
+                    "Category": ocat, "Region": oreg, "Order Date": datetime.now()
                 }])
-                st.session_state.main_df = pd.concat([st.session_state.main_df, new_data], ignore_index=True)
-                st.success("New record integrated into the system!")
-                st.rerun()
+                st.session_state.main_df = pd.concat([st.session_state.main_df, new_row], ignore_index=True)
+                st.success("New record synchronized successfully!")
 
-    # 2. File Download Management
-    st.write("### Current System Data")
-    st.dataframe(st.session_state.main_df, use_container_width=True)
-    
-    csv = st.session_state.main_df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Download Database as CSV", data=csv, file_name="galaxy_export.csv", mime="text/csv")
+    with tab2:
+        st.write("### Current Ledger")
+        st.dataframe(st.session_state.main_df.sort_values(by='Order Date', ascending=False), use_container_width=True)
+        
+        csv = st.session_state.main_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Galaxy Archive (CSV)", data=csv, file_name="galaxy_data.csv")
